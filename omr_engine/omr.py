@@ -175,7 +175,7 @@ class OMREngine:
         overlay = warped.copy()
         
         # Let's check bubbles
-        fill_threshold = 0.38
+        fill_threshold = 0.08
         
         # A. Parse Student ID
         student_id_digits = []
@@ -362,7 +362,7 @@ class OMREngine:
         
         # Create output overlay
         overlay = warped.copy()
-        fill_threshold = 0.38
+        fill_threshold = 0.08
         
         # A. Parse Student ID
         student_id_digits = []
