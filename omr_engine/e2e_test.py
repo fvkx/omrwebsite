@@ -117,6 +117,23 @@ test("Filtered submissions returns 200", r2.status_code == 200)
 filtered = r2.json()
 test("Filtered list contains graded submission", len(filtered) >= 1)
 
+# ── Test 7: Delete exam ──────────────────────────────────────
+print("\n🔹 Test 7: Delete exam (DELETE /api/exams/{exam_id})")
+r = requests.delete(f"{BASE_URL}/api/exams/{exam_id}")
+test("Status code is 200", r.status_code == 200, f"got {r.status_code}")
+delete_data = r.json()
+test("Response status is success", delete_data.get("status") == "success")
+
+# Verify deleted
+r_get = requests.get(f"{BASE_URL}/api/exams")
+exams_list = r_get.json()
+test("Exam is no longer in the list", not any(e["id"] == exam_id for e in exams_list))
+
+# Verify associated submissions are deleted
+r_subs = requests.get(f"{BASE_URL}/api/submissions?exam_id={exam_id}")
+filtered_subs = r_subs.json()
+test("Submissions for the exam are deleted", len(filtered_subs) == 0)
+
 # ── Summary ───────────────────────────────────────────────────
 print("\n" + "=" * 60)
 total = passed + failed

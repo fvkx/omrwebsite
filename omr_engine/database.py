@@ -107,6 +107,18 @@ def list_exams() -> list:
         })
     return exams
 
+def delete_exam(exam_id: str) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Delete associated submissions first to maintain integrity
+    cursor.execute("DELETE FROM submissions WHERE exam_id = ?", (exam_id,))
+    # Delete the exam itself
+    cursor.execute("DELETE FROM exams WHERE id = ?", (exam_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
 def save_submission(submission_id: str, exam_id: str, student_id: str, score: int, total_questions: int, answers: dict) -> dict:
     conn = get_db_connection()
     cursor = conn.cursor()

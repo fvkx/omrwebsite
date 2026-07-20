@@ -68,3 +68,14 @@ export async function fetchSubmissions(examId?: string): Promise<Submission[]> {
   }
   return response.json();
 }
+
+export async function deleteExam(examId: string): Promise<{ status: string, message: string }> {
+  const response = await fetch(`${API_BASE}/api/exams/${examId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.detail || 'Failed to delete exam');
+  }
+  return response.json();
+}

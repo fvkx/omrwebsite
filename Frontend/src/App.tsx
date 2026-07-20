@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  BarChart3, 
-  UploadCloud, 
-  History, 
-  Plus, 
-  BookOpen, 
-  GraduationCap, 
-  CheckCircle2, 
-  XCircle, 
-  Search, 
-  Eye, 
+import {
+  BarChart3,
+  UploadCloud,
+  History,
+  Plus,
+  BookOpen,
+  GraduationCap,
+  CheckCircle2,
+  XCircle,
+  Search,
+  Eye,
   Info,
   Sparkles,
-  FileUp
+  FileUp,
+  Trash2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { Exam, Submission, QuickScanResult, GradeResult } from './types';
-import { fetchExams, createExam, gradeSheet, extractSheet, fetchSubmissions } from './api';
+import { fetchExams, createExam, gradeSheet, extractSheet, fetchSubmissions, deleteExam } from './api';
 
 // Toast Notification Type
 interface Toast {
@@ -47,7 +48,7 @@ export default function App() {
 
   // Active Exam Inspection & Grading State
   const [selectedExamId, setSelectedExamId] = useState<string>('');
-  const [gradingProgress, setGradingProgress] = useState<{current: number; total: number} | null>(null);
+  const [gradingProgress, setGradingProgress] = useState<{ current: number; total: number } | null>(null);
   const [latestGradeResult, setLatestGradeResult] = useState<GradeResult | null>(null);
 
   // Submissions Filtering
@@ -202,10 +203,35 @@ export default function App() {
     }
   };
 
+  const handleDeleteExam = async (examId: string) => {
+    if (!window.confirm("Are you sure you want to delete this exam and all its grading submissions? This cannot be undone.")) {
+      return;
+    }
+    try {
+      await deleteExam(examId);
+      addToast('success', 'Exam and its submissions deleted successfully.');
+      
+      // Update selectedExamId first if it's the one being deleted
+      setSelectedExamId(prev => {
+        if (prev === examId) {
+          // Find next available exam (excluding the deleted one)
+          const remaining = exams.filter(e => e.id !== examId);
+          return remaining.length > 0 ? remaining[0].id : '';
+        }
+        return prev;
+      });
+
+      // Reload data
+      await Promise.all([loadExams(), loadSubmissions()]);
+    } catch (err: any) {
+      addToast('error', err.message || 'Failed to delete exam.');
+    }
+  };
+
   // Fetch submission overlay image when viewing submission details
   const viewSubmissionDetails = (sub: Submission) => {
     setSelectedSubmission(sub);
-    
+
     // In our backend database, we save submissions but do not store overlay images directly.
     // Instead of re-grading to get overlay base64, we can retrieve it or show detailed breakdown.
     // Wait, the API returns `overlay_image` only on active grading `/api/grade`.
@@ -226,7 +252,7 @@ export default function App() {
 
   // Calculate quick dashboard stats
   const totalSheetsGraded = submissions.length;
-  const averagePercentage = totalSheetsGraded > 0 
+  const averagePercentage = totalSheetsGraded > 0
     ? Math.round((submissions.reduce((acc, sub) => acc + (sub.score / (sub.total_questions || 50)), 0) / totalSheetsGraded) * 100)
     : 0;
   const totalExamsCount = exams.length;
@@ -253,21 +279,21 @@ export default function App() {
           🎯 Aero<span>OMR</span>
         </div>
         <ul className="sidebar-menu">
-          <li 
+          <li
             className={`sidebar-item ${activeTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => setActiveTab('dashboard')}
           >
             <BarChart3 size={18} />
             Dashboard
           </li>
-          <li 
+          <li
             className={`sidebar-item ${activeTab === 'quick-scan' ? 'active' : ''}`}
             onClick={() => setActiveTab('quick-scan')}
           >
             <Sparkles size={18} />
             Quick Scanner
           </li>
-          <li 
+          <li
             className={`sidebar-item ${activeTab === 'exams' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('exams');
@@ -279,7 +305,7 @@ export default function App() {
             <BookOpen size={18} />
             Exams & Grading
           </li>
-          <li 
+          <li
             className={`sidebar-item ${activeTab === 'history' ? 'active' : ''}`}
             onClick={() => setActiveTab('history')}
           >
@@ -388,15 +414,15 @@ export default function App() {
               {/* Quick Actions */}
               <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <h2 style={{ fontSize: '1.2rem' }}>Quick Actions</h2>
-                <button 
-                  className="btn btn-primary" 
+                <button
+                  className="btn btn-primary"
                   style={{ width: '100%', justifyContent: 'flex-start' }}
                   onClick={() => setActiveTab('quick-scan')}
                 >
                   <Sparkles size={18} /> Quick Bubble Reader
                 </button>
-                <button 
-                  className="btn btn-secondary" 
+                <button
+                  className="btn btn-secondary"
                   style={{ width: '100%', justifyContent: 'flex-start' }}
                   onClick={() => {
                     setActiveTab('exams');
@@ -429,14 +455,19 @@ export default function App() {
             </div>
 
             <div className="card" style={{ marginBottom: '2rem' }}>
-              <input 
-                type="file" 
+              <input
+                type="file"
                 ref={quickScanInputRef}
                 style={{ display: 'none' }}
                 accept="image/*"
-                onChange={(e) => e.target.files && handleQuickScanUpload(e.target.files[0])}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleQuickScanUpload(e.target.files[0]);
+                  }
+                  e.target.value = '';
+                }}
               />
-              <div 
+              <div
                 className="dropzone"
                 onClick={() => quickScanInputRef.current?.click()}
                 onDragOver={(e) => e.preventDefault()}
@@ -470,9 +501,9 @@ export default function App() {
                     Annotated Scan Image
                   </h3>
                   <div className="image-preview-container">
-                    <img 
-                      src={`data:image/png;base64,${quickScanResult.overlay_image}`} 
-                      alt="OMR Scan Overlay" 
+                    <img
+                      src={`data:image/png;base64,${quickScanResult.overlay_image}`}
+                      alt="OMR Scan Overlay"
                     />
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', fontSize: '0.75rem', justifyContent: 'center' }}>
@@ -506,8 +537,8 @@ export default function App() {
                               <span className="bubble-num">{qNum}.</span>
                               <div className="bubble-options">
                                 {['A', 'B', 'C', 'D', 'E'].map(opt => (
-                                  <span 
-                                    key={opt} 
+                                  <span
+                                    key={opt}
                                     className={`bubble-btn ${detectedVal === opt ? 'active' : ''}`}
                                     style={{ width: '26px', height: '26px', fontSize: '0.75rem', pointerEvents: 'none' }}
                                   >
@@ -529,8 +560,8 @@ export default function App() {
                               <span className="bubble-num">{qNum}.</span>
                               <div className="bubble-options">
                                 {['A', 'B', 'C', 'D', 'E'].map(opt => (
-                                  <span 
-                                    key={opt} 
+                                  <span
+                                    key={opt}
                                     className={`bubble-btn ${detectedVal === opt ? 'active' : ''}`}
                                     style={{ width: '26px', height: '26px', fontSize: '0.75rem', pointerEvents: 'none' }}
                                   >
@@ -558,7 +589,7 @@ export default function App() {
                 <h1 className="header-title">Exams & Grading</h1>
                 <p className="header-subtitle">Manage exam answer keys and grade student sheets.</p>
               </div>
-              <button 
+              <button
                 className="btn btn-primary"
                 onClick={() => setShowCreateExam(true)}
               >
@@ -575,14 +606,14 @@ export default function App() {
                     Cancel
                   </button>
                 </h3>
-                
+
                 <form onSubmit={handleCreateExamSubmit}>
                   <div className="form-group">
                     <label className="form-label">Exam Name</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="e.g. Midterm Physics, Quiz 1" 
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Midterm Physics, Quiz 1"
                       value={newExamName}
                       onChange={(e) => setNewExamName(e.target.value)}
                       required
@@ -593,16 +624,21 @@ export default function App() {
                     {/* Setup Key options */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                       <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Configure Official Answer Key</h4>
-                      
-                      <input 
-                        type="file" 
+
+                      <input
+                        type="file"
                         ref={keyScanInputRef}
                         style={{ display: 'none' }}
                         accept="image/*"
-                        onChange={(e) => e.target.files && handleKeySheetUpload(e.target.files[0])}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleKeySheetUpload(e.target.files[0]);
+                          }
+                          e.target.value = '';
+                        }}
                       />
-                      
-                      <button 
+
+                      <button
                         type="button"
                         className="btn btn-secondary"
                         onClick={() => keyScanInputRef.current?.click()}
@@ -630,8 +666,8 @@ export default function App() {
                                   <span className="bubble-num">{qNum}.</span>
                                   <div className="bubble-options">
                                     {['A', 'B', 'C', 'D', 'E'].map(opt => (
-                                      <button 
-                                        key={opt} 
+                                      <button
+                                        key={opt}
                                         type="button"
                                         className={`bubble-btn ${newExamKey[qStr] === opt ? 'active' : ''}`}
                                         style={{ width: '24px', height: '24px', fontSize: '0.75rem' }}
@@ -657,8 +693,8 @@ export default function App() {
                                   <span className="bubble-num">{qNum}.</span>
                                   <div className="bubble-options">
                                     {['A', 'B', 'C', 'D', 'E'].map(opt => (
-                                      <button 
-                                        key={opt} 
+                                      <button
+                                        key={opt}
                                         type="button"
                                         className={`bubble-btn ${newExamKey[qStr] === opt ? 'active' : ''}`}
                                         style={{ width: '24px', height: '24px', fontSize: '0.75rem' }}
@@ -705,8 +741,8 @@ export default function App() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {exams.map(exam => (
-                      <div 
-                        key={exam.id} 
+                      <div
+                        key={exam.id}
                         className={`sidebar-item ${selectedExamId === exam.id ? 'active' : ''}`}
                         style={{ padding: '1rem', cursor: 'pointer', display: 'block' }}
                         onClick={() => {
@@ -728,18 +764,35 @@ export default function App() {
               <div className="card">
                 {activeExam ? (
                   <div>
-                    <h2 style={{ marginBottom: '0.5rem' }}>{activeExam.name}</h2>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-                      Created at {formatDate(activeExam.created_at)}
-                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem' }}>
+                      <div>
+                        <h2 style={{ margin: 0 }}>{activeExam.name}</h2>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem', marginBottom: 0 }}>
+                          Created at {formatDate(activeExam.created_at)}
+                        </p>
+                      </div>
+                      <button
+                        className="btn btn-danger"
+                        style={{
+                          padding: '0.5rem 1rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          fontSize: '0.85rem'
+                        }}
+                        onClick={() => handleDeleteExam(activeExam.id)}
+                      >
+                        <Trash2 size={16} /> Delete Exam
+                      </button>
+                    </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
                       {/* Grading dropzone */}
                       <div style={{ borderRight: '1px solid var(--border)', paddingRight: '1.5rem' }}>
                         <h4 style={{ marginBottom: '1rem', fontSize: '0.95rem' }}>Grade Student OMR Sheets</h4>
-                        
-                        <input 
-                          type="file" 
+
+                        <input
+                          type="file"
                           ref={studentScanInputRef}
                           style={{ display: 'none' }}
                           accept="image/*"
@@ -749,10 +802,11 @@ export default function App() {
                               const filesArr = Array.from(e.target.files);
                               handleGradeSheetsSubmit(filesArr);
                             }
+                            e.target.value = '';
                           }}
                         />
 
-                        <div 
+                        <div
                           className="dropzone"
                           style={{ padding: '2rem 1rem' }}
                           onClick={() => studentScanInputRef.current?.click()}
@@ -779,10 +833,10 @@ export default function App() {
                               <span>{gradingProgress.current} / {gradingProgress.total}</span>
                             </div>
                             <div style={{ width: '100%', height: '6px', background: 'var(--bg-base)', borderRadius: '3px', overflow: 'hidden' }}>
-                              <div 
-                                style={{ 
-                                  height: '100%', 
-                                  background: 'var(--primary)', 
+                              <div
+                                style={{
+                                  height: '100%',
+                                  background: 'var(--primary)',
                                   width: `${(gradingProgress.current / gradingProgress.total) * 100}%`,
                                   transition: 'width 0.2s'
                                 }}
@@ -799,7 +853,7 @@ export default function App() {
                           <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
                             <tbody>
                               {Object.entries(activeExam.answer_key)
-                                .sort((a,b) => parseInt(a[0]) - parseInt(b[0]))
+                                .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
                                 .map(([q, ans]) => (
                                   <tr key={q} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                                     <td style={{ padding: '0.25rem', color: 'var(--text-muted)', fontWeight: 600 }}>Q{q}</td>
@@ -822,7 +876,7 @@ export default function App() {
                             Student ID: {latestGradeResult.student_id || 'N/A'} — Score: {latestGradeResult.score}/{latestGradeResult.total_questions}
                           </span>
                         </h4>
-                        
+
                         <div className="grade-layout">
                           <div className="image-preview-container" style={{ maxHeight: '400px' }}>
                             <img src={`data:image/png;base64,${latestGradeResult.overlay_image}`} alt="Graded OMR Sheet" />
@@ -850,8 +904,8 @@ export default function App() {
                                           btnClass = 'incorrect'; // red bg
                                         }
                                         return (
-                                          <span 
-                                            key={opt} 
+                                          <span
+                                            key={opt}
                                             className={`bubble-btn ${btnClass}`}
                                             style={{ width: '22px', height: '22px', fontSize: '0.7rem', pointerEvents: 'none' }}
                                           >
@@ -895,14 +949,14 @@ export default function App() {
             <div className="card">
               <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
                 <div style={{ position: 'relative', flex: 1 }}>
-                  <Search 
-                    size={16} 
-                    style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} 
+                  <Search
+                    size={16}
+                    style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
                   />
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="Search by Student ID..." 
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Search by Student ID..."
                     style={{ paddingLeft: '2.25rem' }}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -949,8 +1003,8 @@ export default function App() {
                               </td>
                               <td>{formatDate(sub.created_at)}</td>
                               <td>
-                                <button 
-                                  className="btn btn-secondary" 
+                                <button
+                                  className="btn btn-secondary"
                                   style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
                                   onClick={() => viewSubmissionDetails(sub)}
                                 >
@@ -968,17 +1022,17 @@ export default function App() {
 
             {/* Submission Detail Inspection Modal */}
             {selectedSubmission && (
-              <div 
-                style={{ 
-                  position: 'fixed', 
-                  top: 0, 
-                  left: 0, 
-                  width: '100%', 
-                  height: '100%', 
-                  background: 'rgba(0,0,0,0.8)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
+              <div
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  background: 'rgba(0,0,0,0.8)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   zIndex: 999,
                   padding: '2rem'
                 }}
@@ -986,8 +1040,8 @@ export default function App() {
                 <div className="card" style={{ width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
                     <h3 style={{ fontSize: '1.2rem' }}>Grading Summary</h3>
-                    <button 
-                      className="btn btn-danger" 
+                    <button
+                      className="btn btn-danger"
                       style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
                       onClick={() => setSelectedSubmission(null)}
                     >
@@ -1026,7 +1080,7 @@ export default function App() {
                       {/* Left side */}
                       <div>
                         {Object.entries(selectedSubmission.answers)
-                          .sort((a,b) => parseInt(a[0]) - parseInt(b[0]))
+                          .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
                           .slice(0, 25)
                           .map(([qStr, ansObj]) => {
                             const exam = exams.find(e => e.id === selectedSubmission.exam_id);
@@ -1050,7 +1104,7 @@ export default function App() {
                       {/* Right side */}
                       <div>
                         {Object.entries(selectedSubmission.answers)
-                          .sort((a,b) => parseInt(a[0]) - parseInt(b[0]))
+                          .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
                           .slice(25)
                           .map(([qStr, ansObj]) => {
                             const exam = exams.find(e => e.id === selectedSubmission.exam_id);

@@ -5,14 +5,25 @@ from pydantic import BaseModel, Field
 import uuid
 import os
 import io
+import sys
 import cv2
 import numpy as np
+from contextlib import asynccontextmanager
 
-from database import init_db, save_exam, update_exam, get_exam, list_exams, save_submission, list_submissions
+# Add current directory to path to prevent ModuleNotFoundError when run from root
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from database import init_db, save_exam, update_exam, get_exam, list_exams, save_submission, list_submissions, delete_exam
 from omr import OMREngine, OMRCornerDetectionError
 
+# Lifespan events handler (modern replacement for startup/shutdown events)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 # Initialize FastAPI App
-app = FastAPI(title="OMR Grading System API")
+app = FastAPI(title="OMR Grading System API", lifespan=lifespan)
 
 # Enable CORS for frontend integration
 app.add_middleware(
@@ -22,11 +33,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize database tables on startup
-@app.on_event("startup")
-def startup_event():
-    init_db()
 
 # Pydantic Schemas
 class ExamCreate(BaseModel):
@@ -86,6 +92,18 @@ def edit_exam_key(exam_id: str, exam: ExamUpdate):
 @app.get("/api/exams")
 def get_all_exams():
     return list_exams()
+
+@app.delete("/api/exams/{exam_id}")
+def delete_existing_exam(exam_id: str):
+    existing = get_exam(exam_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Exam not found.")
+    
+    success = delete_exam(exam_id)
+    if success:
+        return {"status": "success", "message": "Exam and all its submissions deleted successfully."}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete exam.")
 
 @app.post("/api/grade")
 async def grade_exam_sheet(

@@ -12,10 +12,16 @@ class OMRCornerDetectionError(Exception):
 
 class OMREngine:
     def __init__(self):
-        self.coordinates = None
-        if os.path.exists(COORDS_PATH):
-            with open(COORDS_PATH, "r") as f:
-                self.coordinates = json.load(f)
+        # Coordinates are loaded fresh on each request so recalibration
+        # takes effect without restarting the server.
+        pass
+
+    def _load_coordinates(self):
+        """Load coordinates from disk, raising an error if not calibrated."""
+        if not os.path.exists(COORDS_PATH):
+            raise ValueError("Coordinates database coordinates.json has not been calibrated.")
+        with open(COORDS_PATH, "r") as f:
+            return json.load(f)
 
     def detect_corners(self, image):
         """
@@ -147,13 +153,8 @@ class OMREngine:
             "overlay_base64": str
         }
         """
-        if self.coordinates is None:
-            # Try reloading coordinates if not loaded yet
-            if os.path.exists(COORDS_PATH):
-                with open(COORDS_PATH, "r") as f:
-                    self.coordinates = json.load(f)
-            else:
-                raise ValueError("Coordinates database coordinates.json has not been calibrated.")
+        # Load coordinates fresh from disk on every call
+        coordinates = self._load_coordinates()
 
         # 1. Corner detection
         corners = self.detect_corners(image)
@@ -178,7 +179,7 @@ class OMREngine:
         
         # A. Parse Student ID
         student_id_digits = []
-        student_id_coords = self.coordinates.get("student_id", [])
+        student_id_coords = coordinates.get("student_id", [])
         
         for col_idx, col in enumerate(student_id_coords):
             column_ratios = []
@@ -232,7 +233,7 @@ class OMREngine:
         score = 0
         total_questions = len(answer_key)
         
-        question_coords = self.coordinates.get("questions", {})
+        question_coords = coordinates.get("questions", {})
         
         for q_num_str, options in question_coords.items():
             # If this question number is in our answer key, grade it
@@ -342,12 +343,8 @@ class OMREngine:
             "overlay_base64": str
         }
         """
-        if self.coordinates is None:
-            if os.path.exists(COORDS_PATH):
-                with open(COORDS_PATH, "r") as f:
-                    self.coordinates = json.load(f)
-            else:
-                raise ValueError("Coordinates database coordinates.json has not been calibrated.")
+        # Load coordinates fresh from disk on every call
+        coordinates = self._load_coordinates()
 
         # 1. Corner detection
         corners = self.detect_corners(image)
@@ -369,7 +366,7 @@ class OMREngine:
         
         # A. Parse Student ID
         student_id_digits = []
-        student_id_coords = self.coordinates.get("student_id", [])
+        student_id_coords = coordinates.get("student_id", [])
         
         for col_idx, col in enumerate(student_id_coords):
             column_ratios = []
@@ -412,7 +409,7 @@ class OMREngine:
         
         # B. Parse Questions
         extracted_answers = {}
-        question_coords = self.coordinates.get("questions", {})
+        question_coords = coordinates.get("questions", {})
         
         for q_num_str in sorted(question_coords.keys(), key=lambda x: int(x)):
             options = question_coords[q_num_str]
